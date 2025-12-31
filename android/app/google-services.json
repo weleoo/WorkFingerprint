@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "587254191180",
+    "project_id": "work-fingerprint-4a915",
+    "storage_bucket": "work-fingerprint-4a915.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:587254191180:android:65321d02b2342a668850e9",
+        "android_client_info": {
+          "package_name": "com.example.workfingerprint"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDrI456sUy2gFe-ZjnQTePPFIOY2x514-M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
