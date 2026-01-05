@@ -28,7 +28,6 @@ class _EngineerFormViewState extends State<EngineerFormView> {
   List<String> allHospitals = [];
   bool _isHospitalsLoading = true;
 
-  // تم حذف "غير ذلك" من القائمة هنا
   final List<String> visitTypes = ["صيانة", "صيانة دورية", "مبيعات", "تسليم او استلام اوراق", "استلام او ارسال شحن"];
   final List<String> devices = ["ABG Blood Gas", "Electrolyte", "SBA733 Plus", "CBC Tek2", "CBC Tek500", "CBC Tek8510"];
   final List<String> salesOptions = ["ترك عينات ","رابيد تيست", "سكر", "اجهزه", "كل ذلك"];
@@ -87,7 +86,6 @@ class _EngineerFormViewState extends State<EngineerFormView> {
       return;
     }
 
-    // تم تعديل الشرط ليعتمد على الأنواع الجديدة فقط في استثناء اختيار الجهاز
     bool isGeneralVisit = selectedVisitType == "تسليم او استلام اوراق" ||
         selectedVisitType == "استلام او ارسال شحن";
 
@@ -145,7 +143,6 @@ class _EngineerFormViewState extends State<EngineerFormView> {
   @override
   Widget build(BuildContext context) {
     bool isSales = selectedVisitType == "مبيعات";
-    // تعديل منطق القفل للأنواع الجديدة فقط
     bool isOther = selectedVisitType == "تسليم او استلام اوراق" ||
         selectedVisitType == "استلام او ارسال شحن";
 
@@ -167,6 +164,23 @@ class _EngineerFormViewState extends State<EngineerFormView> {
             _isHospitalsLoading
                 ? const LinearProgressIndicator(color: Colors.blue)
                 : DropdownSearch<String>(
+              // --- تفعيل السيرش هنا ---
+              popupProps: PopupProps.menu(
+                showSearchBox: true,
+                searchFieldProps: TextFieldProps(
+                  textAlign: TextAlign.right,
+                  decoration: InputDecoration(
+                    hintText: "ابحث عن مستشفى...",
+                    prefixIcon: const Icon(Icons.search),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                itemBuilder: (context, item, isSelected) => Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Text(item, textAlign: TextAlign.right),
+                ),
+              ),
+              // -----------------------
               items: allHospitals,
               onChanged: (val) => setState(() => _hospitalController.text = val ?? ""),
               selectedItem: _hospitalController.text.isEmpty ? null : _hospitalController.text,

@@ -27,10 +27,9 @@ class _LoginViewState extends State<LoginView> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      // شلنا الـ Container والـ MediaQuery اللي كانوا بيثبتوا الارتفاع عشان الـ Scroll يشتغل بحرية
       body: SingleChildScrollView(
-        child: Container(
-          // ضبط الارتفاع ليكون على قد الشاشة عشان البيانات اللي تحت تظبط
-          height: MediaQuery.of(context).size.height,
+        child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 30.0),
           child: Column(
             children: [
@@ -70,8 +69,9 @@ class _LoginViewState extends State<LoginView> {
                 ),
               ),
 
-              // مساحة مرنة لرفع البيانات لأسفل الشاشة
-              const Spacer(),
+              // استبدلنا الـ Spacer بـ SizedBox كبير عشان نمنع الـ Overflow
+              // وفي نفس الوقت نحافظ على المسافة بين الفورم وبيانات المطور
+              const SizedBox(height: 60),
 
               // بيانات المطور (وليد عادل)
               Column(
@@ -96,13 +96,15 @@ class _LoginViewState extends State<LoginView> {
                   ),
                 ],
               ),
-              const SizedBox(height: 20), // مسافة بسيطة من الحافة التحتية
+              const SizedBox(height: 30),
             ],
           ),
         ),
       ),
     );
   }
+
+  // --- باقي الـ Widgets زي ما هي بالظبط بدون أي تغيير في الديزاين ---
 
   Widget _buildLoginButton(BuildContext context) {
     return Container(
