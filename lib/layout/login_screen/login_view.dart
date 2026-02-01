@@ -1,5 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
 import 'package:workfingerprint/layout/admin_screen/admin_view.dart';
 import 'package:workfingerprint/layout/home_screen/home.dart';
 import 'package:workfingerprint/register_screen/register_view.dart';
@@ -15,6 +17,7 @@ class _LoginViewState extends State<LoginView> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   bool isObscure = true;
+  bool isLoading = false;
 
   @override
   void dispose() {
@@ -27,7 +30,6 @@ class _LoginViewState extends State<LoginView> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      // شلنا الـ Container والـ MediaQuery اللي كانوا بيثبتوا الارتفاع عشان الـ Scroll يشتغل بحرية
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 30.0),
@@ -39,26 +41,18 @@ class _LoginViewState extends State<LoginView> {
                 child: Image.asset('assets/images/logo.png', height: 120),
               ),
               const SizedBox(height: 50),
-
-              // حقل البريد الإلكتروني
               _buildTextField(
                 hint: "البريد الإلكتروني",
                 icon: Icons.email_outlined,
                 controller: emailController,
               ),
-
               const SizedBox(height: 20),
-
-              // حقل الباسورد
               _buildPasswordField(),
-
               const SizedBox(height: 40),
-
-              // زرار تسجيل الدخول المطور
-              _buildLoginButton(context),
-
+              isLoading
+                  ? const CircularProgressIndicator()
+                  : _buildLoginButton(context),
               const SizedBox(height: 20),
-
               TextButton(
                 onPressed: () {
                   Navigator.push(context, MaterialPageRoute(builder: (context) => const RegisterView()));
@@ -68,16 +62,11 @@ class _LoginViewState extends State<LoginView> {
                   style: TextStyle(color: Colors.blue.shade700),
                 ),
               ),
-
-              // استبدلنا الـ Spacer بـ SizedBox كبير عشان نمنع الـ Overflow
-              // وفي نفس الوقت نحافظ على المسافة بين الفورم وبيانات المطور
               const SizedBox(height: 60),
-
-              // بيانات المطور (وليد عادل)
               Column(
                 children: [
                   Text(
-                    "Developed by Waleed Adel",
+                    "Developed By Waleed Adel",
                     style: TextStyle(
                       color: Colors.blue.shade300,
                       fontSize: 14,
@@ -103,8 +92,6 @@ class _LoginViewState extends State<LoginView> {
       ),
     );
   }
-
-  // --- باقي الـ Widgets زي ما هي بالظبط بدون أي تغيير في الديزاين ---
 
   Widget _buildLoginButton(BuildContext context) {
     return Container(
@@ -132,35 +119,58 @@ class _LoginViewState extends State<LoginView> {
             return;
           }
 
+          setState(() => isLoading = true);
+
           try {
-            await FirebaseAuth.instance.signInWithEmailAndPassword(
+            // 1. تسجيل الدخول عبر Firebase Auth
+            UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
               email: email,
               password: password,
             );
 
-            const String adminEmail = "cairo@company.admin";
 
-            if (email.toLowerCase() == adminEmail.toLowerCase()) {
-              _showSnackBar("مرحباً بك أيها المدير");
+            DocumentSnapshot userDoc = await FirebaseFirestore.instance
+                .collection('users')
+                .doc(userCredential.user!.uid)
+                .get();
+
+            if (userDoc.exists && userDoc.data() != null) {
+              // استخراج الرول (إذا لم يوجد نعتبره مهندس بشكل افتراضي)
+              Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
+              String role = userData['role']?.toString() ?? "engineer";
+
               if (context.mounted) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (context) => const AdminDashboardView()),
-                );
+                // 3. التوجيه بناءً على الرتبة
+                if (role.toLowerCase().contains("admin")) {
+                  _showSnackBar("مرحباً بك في لوحة الإدارة");
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (context) => const AdminDashboardView()),
+                  );
+                } else {
+                  _showSnackBar("تم تسجيل الدخول بنجاح");
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (context) => const EngineerFormView()),
+                  );
+                }
               }
             } else {
-              _showSnackBar("تم تسجيل الدخول بنجاح");
-              if (context.mounted) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (context) => const EngineerFormView()),
-                );
-              }
+              // حالة وجود حساب في Auth ولكن لا يوجد له بيانات في Firestore
+              _showSnackBar("خطأ: بيانات المستخدم غير مكتملة في قاعدة البيانات");
             }
           } on FirebaseAuthException catch (e) {
-            _showSnackBar("خطأ: البريد أو كلمة المرور غير صحيحة");
+            if (e.code == 'user-not-found') {
+              _showSnackBar("هذا البريد غير مسجل");
+            } else if (e.code == 'wrong-password') {
+              _showSnackBar("كلمة المرور غير صحيحة");
+            } else {
+              _showSnackBar("خطأ: البريد أو كلمة المرور غير صحيحة");
+            }
           } catch (e) {
-            _showSnackBar("حدث خطأ غير متوقع");
+            _showSnackBar("حدث خطأ غير متوقع أثناء الدخول");
+          } finally {
+            if (mounted) setState(() => isLoading = false);
           }
         },
         child: const Text(

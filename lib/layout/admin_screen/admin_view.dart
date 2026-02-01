@@ -6,20 +6,88 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:excel/excel.dart';
+import 'package:excel/excel.dart' as excel_file;
 import 'package:workfingerprint/layout/login_screen/login_view.dart';
-
-// --- الصفحة الأولى: لوحة تحكم الإدمن ---
+String _normalizeArabic(String text) {
+  text = text.replaceAll(RegExp(r'[أإآ]'), 'ا');
+  text = text.replaceAll(RegExp(r'[ى]'), 'ي');
+  text = text.replaceAll(RegExp(r'[ة]'), 'ه');
+  return text.trim().toLowerCase();
+}
+class NewLocationsView extends StatelessWidget {
+  const NewLocationsView({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey.shade50,
+      appBar: AppBar(
+        title: const Text("الأماكن الجديدة المضافة", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF0D47A1),
+        centerTitle: true,
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('new_leads_locations').orderBy('timestamp', descending: true).snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (snapshot.data!.docs.isEmpty) return const Center(child: Text("لا توجد أماكن جديدة"));
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: snapshot.data!.docs.length,
+            itemBuilder: (context, index) {
+              var data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
+              DateTime? ts = (data['timestamp'] as Timestamp?)?.toDate();
+              return Card(
+                elevation: 3,
+                margin: const EdgeInsets.only(bottom: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                child: ListTile(
+                  title: Text(data['hospital_name'] ?? "اسم المكان", style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("العميل: ${data['client_name'] ?? '---'}"),
+                      Text("الهاتف: ${data['client_phone'] ?? '---'}"),
+                      Text("بواسطة: ${data['added_by'] ?? '---'}", style: const TextStyle(color: Colors.blueGrey, fontSize: 12)),
+                      if (ts != null) Text("التاريخ: ${DateFormat('dd/MM/yyyy').format(ts)}", style: const TextStyle(fontSize: 11)),
+                    ],
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.location_on, color: Colors.red, size: 30),
+                    onPressed: () => launchUrl(Uri.parse(data['location_link'] ?? "")),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
 class AdminDashboardView extends StatefulWidget {
   const AdminDashboardView({super.key});
-
   @override
   State<AdminDashboardView> createState() => _AdminDashboardViewState();
 }
-
 class _AdminDashboardViewState extends State<AdminDashboardView> {
   String _searchQuery = "";
-
+  String _adminRole = ""; // لتخزين رتبة المدير الحالي
+  @override
+  void initState() {
+    super.initState();
+    _fetchAdminRole();
+  }
+  Future<void> _fetchAdminRole() async {
+    User? user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      var doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (doc.exists && mounted) {
+        setState(() {
+          _adminRole = doc.data()?['role'] ?? "";
+        });
+      }
+    }
+  }
   Future<void> _logout(BuildContext context) async {
     await FirebaseAuth.instance.signOut();
     if (context.mounted) {
@@ -30,7 +98,6 @@ class _AdminDashboardViewState extends State<AdminDashboardView> {
       );
     }
   }
-
   void _addNewDevice(BuildContext context) {
     TextEditingController deviceController = TextEditingController();
     showDialog(
@@ -64,7 +131,6 @@ class _AdminDashboardViewState extends State<AdminDashboardView> {
       ),
     );
   }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -75,6 +141,16 @@ class _AdminDashboardViewState extends State<AdminDashboardView> {
         centerTitle: true,
         backgroundColor: const Color(0xFF0D47A1),
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.fiber_new, color: Colors.white),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const NewLocationsView())),
+          ),
+          IconButton(
+            icon: const Icon(Icons.manage_search, size: 30, color: Colors.white),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => GlobalSearchPage(adminRole: _adminRole))),
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(70),
           child: Padding(
@@ -92,6 +168,7 @@ class _AdminDashboardViewState extends State<AdminDashboardView> {
             ),
           ),
         ),
+
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _addNewDevice(context),
@@ -104,15 +181,25 @@ class _AdminDashboardViewState extends State<AdminDashboardView> {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const Center(child: Text("لا يوجد مهندسين"));
-
           var users = snapshot.data!.docs.where((doc) {
             var data = doc.data() as Map<String, dynamic>;
-            if (data['role'] == 'admin') return false;
+            if (data['role'].toString().contains('admin')) return false;
+            bool isVisible = false;
+            String userDept = data['department'] ?? "";
+            if (_adminRole == "super_admin") {
+              isVisible = true;
+            } else if (_adminRole == "admin_maintenance" && userDept == "صيانة") {
+              isVisible = true;
+            } else if (_adminRole == "admin_sales" && userDept == "مبيعات") {
+              isVisible = true;
+            } else if (_adminRole == "admin_collection" && userDept == "تحصيل") {
+              isVisible = true;
+            }
             String name = (data['name'] ?? "").toString().toLowerCase();
             String phone = (data['phone'] ?? "").toString();
-            return name.contains(_searchQuery.toLowerCase()) || phone.contains(_searchQuery);
+            bool matchesSearch = name.contains(_searchQuery.toLowerCase()) || phone.contains(_searchQuery);
+            return isVisible && matchesSearch;
           }).toList();
-
           return ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: users.length,
@@ -139,60 +226,158 @@ class _AdminDashboardViewState extends State<AdminDashboardView> {
     );
   }
 }
-
-// --- الصفحة الثانية: التقارير بتعديلات الترتيب والبحث بالفترة ---
+class GlobalSearchPage extends StatefulWidget {
+  final String adminRole;
+  const GlobalSearchPage({required this.adminRole, super.key});
+  @override
+  State<GlobalSearchPage> createState() => _GlobalSearchPageState();
+}
+class _GlobalSearchPageState extends State<GlobalSearchPage> {
+  String _query = "";
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("البحث الشامل", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.indigo.shade900,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(60),
+          child: Padding(
+            padding: const EdgeInsets.all(10.0),
+            child: TextField(
+              autofocus: true,
+              textAlign: TextAlign.right,
+              decoration: InputDecoration(
+                hintText: "ابحث باسم المستشفى أو موديل الجهاز...",
+                fillColor: Colors.white,
+                filled: true,
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+              ),
+              onChanged: (v) => setState(() => _query = v.trim()),
+            ),
+          ),
+        ),
+      ),
+      body: _query.isEmpty
+          ? const Center(child: Text("أدخل المستشفي المراد البحث عنها في كافة التقارير"))
+          : StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collectionGroup('visit_reports').snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+          if (!snapshot.hasData) return const Center(child: Text("لا توجد بيانات"));
+          var results = snapshot.data!.docs.where((doc) {
+            var data = doc.data() as Map<String, dynamic>;
+            bool deptMatch = false;
+            String visitType = data['visit_type'] ?? "";
+            if (widget.adminRole == "super_admin") deptMatch = true;
+            else if (widget.adminRole == "admin_maintenance" && visitType == "صيانة") deptMatch = true;
+            else if (widget.adminRole == "admin_sales" && visitType == "مبيعات") deptMatch = true;
+            else if (widget.adminRole == "admin_collection" && visitType == "تحصيل") deptMatch = true;
+            String hospitalNormalized = _normalizeArabic(data['hospital'] ?? "");
+            String deviceNormalized = _normalizeArabic(data['device_type'] ?? "");
+            String queryNormalized = _normalizeArabic(_query);
+            return (hospitalNormalized.contains(queryNormalized) || deviceNormalized.contains(queryNormalized)) && deptMatch;
+          }).toList();
+          if (results.isEmpty) return const Center(child: Text("لا توجد نتائج مطابقة لبحثك في قسمك"));
+          return ListView.builder(
+            itemCount: results.length,
+            itemBuilder: (context, index) {
+              var data = results[index].data() as Map<String, dynamic>;
+              DateTime? ts = (data['timestamp'] as Timestamp?)?.toDate();
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                elevation: 3,
+                child: ListTile(
+                  title: Text(data['hospital'] ?? "", style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("الجهاز: ${data['device_type'] ?? '---'}", style: const TextStyle(color: Colors.black87)),
+                      Text("التاريخ: ${ts != null ? DateFormat('dd/MM/yyyy hh:mm a').format(ts) : '---'}"),
+                      const Divider(),
+                      Row(
+                        children: [
+                          const Icon(Icons.person_pin, size: 16, color: Colors.red),
+                          const SizedBox(width: 5),
+                          Text("المهندس: ${data['engineer_name'] ?? 'غير مسجل'}", style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
 class UserReportsPage extends StatefulWidget {
   final String userId;
   final String userName;
   const UserReportsPage({required this.userId, required this.userName, super.key});
-
   @override
   State<UserReportsPage> createState() => _UserReportsPageState();
 }
-
 class _UserReportsPageState extends State<UserReportsPage> {
-  DateTimeRange? _selectedDateRange; // لتخزين الفترة من وإلى
-
+  DateTimeRange? _selectedDateRange;
+  String _formatDuration(int totalMinutes) {
+    int hours = totalMinutes ~/ 60;
+    int minutes = totalMinutes % 60;
+    return " س$hours د $minutes ";
+  }
+  void _viewImage(String? url) {
+    if (url == null || url.isEmpty || url == "N/A") return;
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.network(url, fit: BoxFit.contain),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("إغلاق")),
+          ],
+        ),
+      ),
+    );
+  }
   Future<void> _exportExcel(List<QueryDocumentSnapshot> docs, int filterDays, {DateTimeRange? customRange}) async {
     try {
-      var excel = Excel.createExcel();
-      Sheet sheet = excel['Reports'];
+      var excel = excel_file.Excel.createExcel();
+      excel_file.Sheet sheet = excel['Reports'];
       excel.delete('Sheet1');
-
       sheet.appendRow([
-        TextCellValue('المهندس'), TextCellValue('نوع الزيارة'), TextCellValue('المستشفى'),
-        TextCellValue('الجهاز'), TextCellValue('التاريخ والوقت'), TextCellValue('المبيعات'),
-        TextCellValue('اسم العميل'), TextCellValue('رقم التليفون'), TextCellValue('مبيعات واعدة'),
-        TextCellValue('الملاحظات'), TextCellValue('رابط الموقع')
+        excel_file.TextCellValue('المهندس'), excel_file.TextCellValue('نوع الزيارة'), excel_file.TextCellValue('المستشفى'),
+        excel_file.TextCellValue('الجهاز'), excel_file.TextCellValue('التاريخ والوقت'), excel_file.TextCellValue('المبيعات'),
+        excel_file.TextCellValue('اسم العميل'), excel_file.TextCellValue('رقم التليفون'), excel_file.TextCellValue('مبيعات واعدة'),
+        excel_file.TextCellValue('الملاحظات'), excel_file.TextCellValue('رابط الموقع')
       ]);
-
       DateTime now = DateTime.now();
       for (var doc in docs) {
         var data = doc.data() as Map<String, dynamic>;
         DateTime? ts = (data['timestamp'] as Timestamp?)?.toDate();
         if (ts == null) continue;
-
         if (customRange != null) {
           if (ts.isBefore(customRange.start) || ts.isAfter(customRange.end.add(const Duration(days: 1)))) continue;
         } else if (filterDays > 0 && now.difference(ts).inDays > filterDays) {
           continue;
         }
-
         var rawMultiSales = data['multi_sales_selected'];
         String multiSales = rawMultiSales is List ? rawMultiSales.join(' - ') : (rawMultiSales?.toString() ?? "---");
         bool isSales = data['visit_type'] == "مبيعات";
 
         sheet.appendRow([
-          TextCellValue(widget.userName), TextCellValue(data['visit_type'] ?? ""), TextCellValue(data['hospital'] ?? ""),
-          TextCellValue(!isSales ? (data['device_type'] ?? "") : "---"),
-          TextCellValue(DateFormat('dd/MM/yyyy HH:mm:ss').format(ts)),
-          TextCellValue(isSales ? (data['device_type'] ?? "") : "---"),
-          TextCellValue(data['client_name'] ?? "---"), TextCellValue(data['client_phone'] ?? "---"),
-          TextCellValue(multiSales), TextCellValue(data['notes'] ?? "لا يوجد"),
-          TextCellValue(data['google_map_link'] ?? "لا يوجد رابط"),
+          excel_file.TextCellValue(widget.userName), excel_file.TextCellValue(data['visit_type'] ?? ""), excel_file.TextCellValue(data['hospital'] ?? ""),
+          excel_file.TextCellValue(!isSales ? (data['device_type'] ?? "") : "---"),
+          excel_file.TextCellValue(DateFormat('dd/MM/yyyy HH:mm:ss').format(ts)),
+          excel_file.TextCellValue(isSales ? (data['device_type'] ?? "") : "---"),
+          excel_file.TextCellValue(data['client_name'] ?? "---"), excel_file.TextCellValue(data['client_phone'] ?? "---"),
+          excel_file.TextCellValue(multiSales), excel_file.TextCellValue(data['notes'] ?? "لا يوجد"),
+          excel_file.TextCellValue(data['google_map_link'] ?? "لا يوجد رابط"),
         ]);
       }
-
       var fileBytes = excel.save();
       if (fileBytes != null) {
         final directory = await getTemporaryDirectory();
@@ -205,7 +390,6 @@ class _UserReportsPageState extends State<UserReportsPage> {
       debugPrint("Export Error: $e");
     }
   }
-
   void _showExportOptions(BuildContext context, List<QueryDocumentSnapshot> docs) {
     showModalBottomSheet(
       context: context,
@@ -229,7 +413,6 @@ class _UserReportsPageState extends State<UserReportsPage> {
       ),
     );
   }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -238,7 +421,7 @@ class _UserReportsPageState extends State<UserReportsPage> {
         backgroundColor: const Color(0xFF0D47A1),
         actions: [
           IconButton(
-            icon: const Icon(Icons.date_range, color: Colors.white), // شكل الكاليندر
+            icon: const Icon(Icons.date_range, color: Colors.white),
             onPressed: () async {
               DateTimeRange? picked = await showDateRangePicker(
                 context: context,
@@ -285,87 +468,154 @@ class _UserReportsPageState extends State<UserReportsPage> {
               stream: FirebaseFirestore.instance.collection('users').doc(widget.userId).collection('visit_reports').orderBy('timestamp', descending: true).snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-
-                var docs = snapshot.data!.docs.where((doc) {
+                var rawDocs = snapshot.data!.docs;
+                var filteredDocs = rawDocs.where((doc) {
                   if (_selectedDateRange == null) return true;
                   DateTime? ts = (doc.data() as Map<String, dynamic>)['timestamp']?.toDate();
                   if (ts == null) return false;
-                  // فحص إذا كان التاريخ يقع ضمن الفترة المختارة
                   return ts.isAfter(_selectedDateRange!.start.subtract(const Duration(seconds: 1))) &&
                       ts.isBefore(_selectedDateRange!.end.add(const Duration(days: 1)));
                 }).toList();
-
-                if (docs.isEmpty) return const Center(child: Text("لا توجد بيانات لهذه الفترة"));
-
-                return SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SingleChildScrollView(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(minWidth: MediaQuery.of(context).size.width),
-                      child: DataTable(
-                        columnSpacing: 20,
-                        horizontalMargin: 10,
-                        headingRowColor: WidgetStateProperty.all(const Color(0xFF0D47A1)),
-                        headingTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                        columns: const [
-                          DataColumn(label: SizedBox(width: 90, child: Text('نوع الزيارة'))),
-                          DataColumn(label: SizedBox(width: 180, child: Text('اسم المستشفى'))), // عرض أوسع
-                          DataColumn(label: SizedBox(width: 120, child: Text('الجهاز'))),
-                          DataColumn(label: SizedBox(width: 140, child: Text('التاريخ والوقت'))), // التاريخ بعد الجهاز
-                          DataColumn(label: SizedBox(width: 90, child: Text('مبيعات'))),
-                          DataColumn(label: SizedBox(width: 140, child: Text('بيانات العميل'))),
-                          DataColumn(label: SizedBox(width: 110, child: Text('مبيعات واعدة'))),
-                          DataColumn(label: SizedBox(width: 200, child: Text('الملاحظات'))),
-                          DataColumn(label: Text('الموقع')),
+                if (filteredDocs.isEmpty) return const Center(child: Text("لا توجد بيانات لهذه الفترة"));
+                Map<String, List<QueryDocumentSnapshot>> groupedByDay = {};
+                for (var doc in filteredDocs) {
+                  DateTime? ts = (doc.data() as Map<String, dynamic>)['timestamp']?.toDate();
+                  if (ts != null) {
+                    String dayKey = DateFormat('yyyy-MM-dd').format(ts);
+                    groupedByDay.putIfAbsent(dayKey, () => []).add(doc);
+                  }
+                }
+                int totalPeriodMinutes = 0;
+                int actualWorkingDays = 0;
+                Map<String, String> dayCalculations = {};
+                groupedByDay.forEach((day, docs) {
+                  if (docs.length >= 2) {
+                    docs.sort((a, b) => ((a.data() as Map)['timestamp'] as Timestamp).compareTo((b.data() as Map)['timestamp'] as Timestamp));
+                    DateTime first = (docs.first.data() as Map<String, dynamic>)['timestamp'].toDate();
+                    DateTime last = (docs.last.data() as Map<String, dynamic>)['timestamp'].toDate();
+                    int diff = last.difference(first).inMinutes;
+                    totalPeriodMinutes += diff;
+                    actualWorkingDays++;
+                    dayCalculations[docs.last.id] = _formatDuration(diff);
+                  }
+                });
+                String avgWorkHours = actualWorkingDays > 0
+                    ? _formatDuration(totalPeriodMinutes ~/ actualWorkingDays)
+                    : "---";
+                return Column(
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(15),
+                      decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(15),
+                          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 6, offset: const Offset(0, 2))],
+                          border: const Border(right: BorderSide(color: Color(0xFF0D47A1), width: 6))
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text("متوسط العمل (لكل يوم عمل فعلي):", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                              Text(avgWorkHours, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 15)),
+                            ],
+                          ),
                         ],
-                        rows: docs.map((doc) {
-                          var data = doc.data() as Map<String, dynamic>;
-                          DateTime? date = (data['timestamp'] as Timestamp?)?.toDate();
-
-                          String formattedDate = date != null ? DateFormat('dd/MM/yyyy').format(date) : "---";
-                          String formattedTime = date != null ? DateFormat('hh:mm a').format(date) : "---";
-
-                          bool isSales = data['visit_type'] == "مبيعات";
-                          var rawMultiSales = data['multi_sales_selected'];
-                          String multiStr = rawMultiSales is List ? rawMultiSales.join(', ') : (rawMultiSales?.toString() ?? "---");
-
-                          return DataRow(cells: [
-                            DataCell(SizedBox(width: 90, child: Text(data['visit_type'] ?? "---"))),
-                            // المستشفى: بولد ولون مختلف وفي سطر لوحده (Block)
-                            DataCell(SizedBox(width: 180, child: Text(
-                              data['hospital'] ?? "---",
-                              style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1565C0), fontSize: 13),
-                              softWrap: true,
-                            ))),
-                            DataCell(SizedBox(width: 120, child: Text(!isSales ? (data['device_type'] ?? "---") : "---"))),
-                            // التاريخ والساعة: الساعة بولد ولون مختلف
-                            DataCell(SizedBox(width: 140, child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(formattedDate, style: const TextStyle(fontSize: 11)),
-                                Text(formattedTime, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.indigo)),
-                              ],
-                            ))),
-                            DataCell(SizedBox(width: 90, child: Text(isSales ? (data['device_type'] ?? "---") : "---"))),
-                            DataCell(SizedBox(width: 140, child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(data['client_name'] ?? "---", style: const TextStyle(fontSize: 12)),
-                                Text(data['client_phone'] ?? "", style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                              ],
-                            ))),
-                            DataCell(SizedBox(width: 110, child: Text(multiStr, style: const TextStyle(fontSize: 12)))),
-                            DataCell(SizedBox(width: 200, child: Text(data['notes'] ?? "لا يوجد", softWrap: true))),
-                            DataCell(IconButton(icon: const Icon(Icons.location_on, color: Colors.red), onPressed: () async {
-                              if (data['google_map_link'] != null) await launchUrl(Uri.parse(data['google_map_link']));
-                            })),
-                          ]);
-                        }).toList(),
                       ),
                     ),
-                  ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: SingleChildScrollView(
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(minWidth: MediaQuery.of(context).size.width),
+                            child: Theme(
+                              data: Theme.of(context).copyWith(dividerColor: Colors.grey.shade300),
+                              child: DataTable(
+                                columnSpacing: 25,
+                                horizontalMargin: 15,
+                                dataRowMaxHeight: 85,
+                                dataRowMinHeight: 65,
+                                headingRowHeight: 55,
+                                headingRowColor: WidgetStateProperty.all(const Color(0xFF0D47A1)),
+                                headingTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                columns: const [
+                                  DataColumn(label: Text('نوع الزيارة')),
+                                  DataColumn(label: Text('اسم المستشفى')),
+                                  DataColumn(label: Text('الجهاز')),
+                                  DataColumn(label: Text('التاريخ والوقت')),
+                                  DataColumn(label: Text('الصور')),
+                                  DataColumn(label: Text('ساعات العمل')),
+                                  DataColumn(label: Text('مبيعات')),
+                                  DataColumn(label: Text('بيانات العميل')),
+                                  DataColumn(label: Text('مبيعات واعدة')),
+                                  DataColumn(label: Text('الملاحظات')),
+                                  DataColumn(label: Text('الموقع')),
+                                ],
+                                rows: filteredDocs.map((doc) {
+                                  var data = doc.data() as Map<String, dynamic>;
+                                  DateTime? date = (data['timestamp'] as Timestamp?)?.toDate();
+                                  String formattedDate = date != null ? DateFormat('dd/MM/yyyy').format(date) : "---";
+                                  String formattedTime = date != null ? DateFormat('hh:mm a').format(date) : "---";
+                                  bool isSales = data['visit_type'] == "مبيعات";
+                                  var rawMultiSales = data['multi_sales_selected'];
+                                  String multiStr = rawMultiSales is List ? rawMultiSales.join(', ') : (rawMultiSales?.toString() ?? "---");
+                                  return DataRow(cells: [
+                                    DataCell(Text(data['visit_type'] ?? "---", style: const TextStyle(fontWeight: FontWeight.w500))),
+                                    DataCell(SizedBox(
+                                      width: 180,
+                                      child: Text(data['hospital'] ?? "---",
+                                        style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1565C0), fontSize: 14),
+                                        softWrap: true,
+                                      ),
+                                    )),
+                                    DataCell(Text(!isSales ? (data['device_type'] ?? "---") : "---")),
+                                    DataCell(Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(formattedDate, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                                          const SizedBox(height: 4),
+                                          Text(formattedTime, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                                        ],
+                                      ),
+                                    )),
+                                    DataCell(
+                                        data['image_url'] != null && data['image_url'] != "N/A"
+                                            ? IconButton(
+                                          icon: const Icon(Icons.image, color: Colors.blue),
+                                          onPressed: () => _viewImage(data['image_url']),
+                                        )
+                                            : const Text("---")
+                                    ),
+                                    DataCell(Center(child: Text(dayCalculations[doc.id] ?? "---", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 14)))),
+                                    DataCell(Text(isSales ? (data['device_type'] ?? "---") : "---")),
+                                    DataCell(Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(data['client_name'] ?? "---", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                                        Text(data['client_phone'] ?? "", style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                                      ],
+                                    )),
+                                    DataCell(SizedBox(width: 110, child: Text(multiStr, style: const TextStyle(fontSize: 12), softWrap: true))),
+                                    DataCell(SizedBox(width: 220, child: Text(data['notes'] ?? "لا يوجد", style: const TextStyle(fontSize: 12, height: 1.3), softWrap: true))),
+                                    DataCell(IconButton(icon: const Icon(Icons.location_on, color: Colors.red, size: 28), onPressed: () async {
+                                      if (data['google_map_link'] != null) await launchUrl(Uri.parse(data['google_map_link']));
+                                    })),
+                                  ]);
+                                }).toList(),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 );
               },
             ),

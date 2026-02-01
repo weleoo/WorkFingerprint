@@ -1,9 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:workfingerprint/layout/admin_screen/admin_view.dart'; // صفحة المدير
+import 'package:workfingerprint/layout/admin_screen/admin_view.dart';
 import 'package:workfingerprint/layout/home_screen/home.dart';
 import 'package:workfingerprint/layout/login_screen/login_view.dart';
- // صفحة المهندس
 
 class SplashView extends StatefulWidget {
   const SplashView({super.key});
@@ -20,35 +20,61 @@ class _SplashViewState extends State<SplashView> {
   }
 
   void _checkAuth() async {
-    // 1. استنى ثانيتين للوجو
+    // 1. انتظار ثانيتين للوجو
     await Future.delayed(const Duration(seconds: 2));
 
-    // 2. اسأل الفايربيز فيه حد مسجل؟
+    // 2. التحقق من وجود مستخدم مسجل في Firebase Auth
     User? user = FirebaseAuth.instance.currentUser;
 
     if (!mounted) return;
 
     if (user != null) {
-      // 3. هنا بقى "الزتونة".. هنشوف إيميل المستخدم اللي مسجل حالياً
-      const String adminEmail = "cairo@company.admin";
-      String? currentUserEmail = user.email?.toLowerCase();
+      try {
+        // 3. التحقق من الرتبة (Role) من Firestore
+        DocumentSnapshot userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
 
-      if (currentUserEmail == adminEmail.toLowerCase()) {
-        // لو الإيميل هو إيميل المدير.. افتحله صفحة المدير فوراً
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const AdminDashboardView()),
-        );
-      } else {
-        // لو أي إيميل تاني.. افتحله صفحة المهندسين (سكرين 4)
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const EngineerFormView()),
+        if (context.mounted) {
+          if (userDoc.exists) {
+            String role = userDoc.get('role') ?? "engineer";
 
-        );
+            // لو الرتبة أدمن، يروح للوحة الإدارة
+            if (role.toLowerCase().contains("admin")) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const AdminDashboardView()),
+              );
+              return; // الخروج من الدالة بعد التوجيه
+            }
+          }
+
+          // في حال كان مستخدم عادي (مهندس) أو المستند غير موجود حالياً
+          // بنوديه لصفحة المهندسين طالما مسجل دخول في Auth
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const EngineerFormView()),
+          );
+        }
+      } catch (e) {
+        // في حالة وجود خطأ في جلب البيانات (زي ضعف النت)
+        // بنوديه لصفحة المهندسين طالما الـ Auth شغال
+        if (context.mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const EngineerFormView()),
+          );
+        }
       }
     } else {
-      // لو مفيش حد مسجل أصلاً.. واديه للوجين
+      // لو مفيش مستخدم مسجل أصلاً
+      _navigateToLogin();
+    }
+  }
+
+  void _navigateToLogin() {
+    if (mounted) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const LoginView()),

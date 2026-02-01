@@ -9,7 +9,6 @@ class RegisterView extends StatefulWidget {
   State<RegisterView> createState() => _RegisterViewState();
 }
 
-
 class _RegisterViewState extends State<RegisterView> {
   // تعريف المتحكمات
   final TextEditingController nameController = TextEditingController();
@@ -17,7 +16,10 @@ class _RegisterViewState extends State<RegisterView> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
 
-  // تنظيف الذاكرة عند الخروج من الصفحة
+  // متغيرات الأقسام
+  final List<String> departments = ["تحصيل", "صيانة", "مبيعات"];
+  String? selectedDepartment;
+
   @override
   void dispose() {
     nameController.dispose();
@@ -64,7 +66,7 @@ class _RegisterViewState extends State<RegisterView> {
               _buildTextField(
                 hint: "الاسم بالكامل",
                 icon: Icons.person_outline,
-                controller: nameController, // ربط الكونترولر
+                controller: nameController,
               ),
               const SizedBox(height: 20),
 
@@ -72,7 +74,7 @@ class _RegisterViewState extends State<RegisterView> {
               _buildTextField(
                 hint: "رقم التليفون",
                 icon: Icons.phone_android_outlined,
-                controller: phoneController, // ربط الكونترولر
+                controller: phoneController,
               ),
               const SizedBox(height: 20),
 
@@ -80,7 +82,7 @@ class _RegisterViewState extends State<RegisterView> {
               _buildTextField(
                 hint: "البريد الإلكتروني",
                 icon: Icons.email_outlined,
-                controller: emailController, // ربط الكونترولر
+                controller: emailController,
               ),
               const SizedBox(height: 20),
 
@@ -89,7 +91,59 @@ class _RegisterViewState extends State<RegisterView> {
                 hint: "كلمة المرور",
                 icon: Icons.lock_outline,
                 isPassword: true,
-                controller: passwordController, // ربط الكونترولر
+                controller: passwordController,
+              ),
+              const SizedBox(height: 20),
+
+              // حقل اختيار القسم (بنفس ديزاين الحقول التانية)
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(15),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.blue.shade50,
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: DropdownButtonFormField<String>(
+                  value: selectedDepartment,
+                  hint: const Align(
+                    alignment: Alignment.centerRight,
+                    child: Text("اختر القسم"),
+                  ),
+                  icon: Icon(Icons.keyboard_arrow_down, color: Colors.blue.shade300),
+                  decoration: InputDecoration(
+                    suffixIcon: Icon(Icons.category_outlined, color: Colors.blue.shade300),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(color: Colors.blue.shade100),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(color: Colors.blue.shade400, width: 2),
+                    ),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                  ),
+                  items: departments.map((String category) {
+                    return DropdownMenuItem(
+                      value: category,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(category),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (newValue) {
+                    setState(() {
+                      selectedDepartment = newValue;
+                    });
+                  },
+                ),
               ),
 
               const SizedBox(height: 40),
@@ -118,8 +172,13 @@ class _RegisterViewState extends State<RegisterView> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                   ),
                   onPressed: () async {
+                    if (selectedDepartment == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("برجاء اختيار القسم")),
+                      );
+                      return;
+                    }
                     try {
-                      // 1. إنشاء الحساب في Authentication
                       final userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
                         email: emailController.text.trim(),
                         password: passwordController.text.trim(),
@@ -127,11 +186,11 @@ class _RegisterViewState extends State<RegisterView> {
 
                       String uid = userCredential.user!.uid;
 
-                      // 2. تخزين البيانات في Firestore
                       await FirebaseFirestore.instance.collection('users').doc(uid).set({
                         'name': nameController.text.trim(),
                         'phone': phoneController.text.trim(),
                         'email': emailController.text.trim(),
+                        'department': selectedDepartment, // حفظ القسم
                         'uid': uid,
                         'createdAt': DateTime.now(),
                       });
@@ -141,7 +200,6 @@ class _RegisterViewState extends State<RegisterView> {
                       );
 
                       Navigator.pop(context);
-
                     } catch (e) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(content: Text("خطأ: ${e.toString()}")),
@@ -181,12 +239,11 @@ class _RegisterViewState extends State<RegisterView> {
     );
   }
 
-  // الـ Widget المعدل لاستقبال الـ Controller
   Widget _buildTextField({
     required String hint,
     required IconData icon,
     bool isPassword = false,
-    required TextEditingController controller, // أضفنا ده
+    required TextEditingController controller,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -201,7 +258,7 @@ class _RegisterViewState extends State<RegisterView> {
         ],
       ),
       child: TextField(
-        controller: controller, // ربطناه هنا
+        controller: controller,
         obscureText: isPassword,
         textAlign: TextAlign.right,
         decoration: InputDecoration(
